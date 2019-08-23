@@ -51,16 +51,19 @@ def train(inp_data, index2tag, embedding_dim, hidden_dim, vocab, output_size, dr
                 t += total
 
             acc.append(float(s/t))
-            #print(float(s/t))
+
             if loss_per_sequence:
                 average_loss.append(np.mean([i for i in loss_per_sequence]))
             loss_per_sequence.clear()
+
+            if epoch % 5 == 0:
+                print('Accuracy: {}, Loss: {}'.format(float(s / t), np.mean([i for i in loss_per_sequence])))
 
         with torch.no_grad():
             inputs = dp.prepare_tensor(inp_data[0][0])
             tag_scores = model(inputs)
             #print(tag_scores)
-
+    print('Training Finished')
     return model, acc, average_loss
 
 
@@ -93,7 +96,7 @@ def evaluate(model, test_data, tag_map, data_dir):
             acc = float(s/t)
             P = [i for j in P for i in j]
             T = [i for j in T for i in j]
-            metrics = metrics_score(T, P, tag_map.keys())
+            metrics = metrics_score(T, P, list(tag_map.keys()))
             print(metrics)
             h.write(metrics)
             d.close()
@@ -150,13 +153,14 @@ if __name__=='__main__':
     plot_dir = "plots"
     index2tag = dict((v, k) for k, v in tag_map.items())
     print(index2tag)
-    trained_model, accuracy, average_loss = train(train_data[:50],
+
+    trained_model, accuracy, average_loss = train(train_data[:500],
                                                   embedding_dim=embedding_dim,
                                                   hidden_dim=hidden_dim,
                                                   index2tag=index2tag,
                                                   vocab=word_map,
                                                   output_size=len(tag_map),
-                                                  n_epochs=30,
+                                                  n_epochs=10,
                                                   dropout_rate=0.2,
                                                   learning_rate=0.1,
                                                   patience=12,
@@ -164,11 +168,11 @@ if __name__=='__main__':
 
     #visualize_training
     visualize_model(accuracy, average_loss, model_name, plot_dir)
-
-    #evaluation
+    #
+    # #evaluation
     line_pairs2, outputs2 = dp.readwordTag(test_data_file)
     test_input, test_target, te_lengths, oov_words = dp.inputAndOutput(line_pairs2, word_map, tag_map, test=True)
     test_data = list(zip(test_input, test_target))
-    a, m = evaluate(trained_model, test_data[:20], tag_map, test_data_file)
+    a, m = evaluate(trained_model, test_data[:100], tag_map, test_data_file)
     print(a)
     print(m)

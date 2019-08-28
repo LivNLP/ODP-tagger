@@ -5,6 +5,7 @@ from keras_preprocessing import text
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.feature_extraction.text import TfidfVectorizer
 import re
+import spacy
 import os
 from pprint import pprint
 
@@ -116,22 +117,125 @@ def inputAndOutput(pairs, word_map, tag_map, encoded_outputs=False, test=False):
     else:
         return prepareTensor(input_batch), prepareTensor(output_batch), lengths
 
-
-
-def prepare_tensor(seq):
-    return
-
 def prepareTensor(seq_data):
     seq_data = [torch.tensor(i, dtype=torch.long, device=device).view(-1, 1) for i in seq_data]
     padded_sentences = seq_data
-    # padded = nn.utils.rnn.pad_sequence(seq_data)
+    # padded = nn.utils.rnn.pad_sequence(seq_datatrain_stanford_ebm.bmes)
     # padded_array = padded.cpu().numpy()
     # padded_sentences = [list(i) for i in list(zip(*padded_array))]
     return padded_sentences
 
+def split_data(file):
+    #
+     #splitting the lengthy abstracts in the files into sentences, using the built spacy model
+    #
+    spacy_model = spacy.load(os.path.abspath('../trained_tagger'))
+    spacy_model.add_pipe(spacy_model.create_pipe('sentencizer'))
+    file_name = os.path.basename(file)
+    num_instances = 0
+    num_abstracts = 0
+    with open(file, 'r') as f:
+        file_input  = f.readlines()
+        sent_tokenize = open(file_name, 'w')
+        tags,words = [],[]
+        for i in range(len(file_input)):
+            if file_input[i] != '\n':
+                l = file_input[i].strip().split()
+                words.append(l[0])
+                tags.append(l[1])
+            else:
+                abstract = ' '.join(words)
+                if abstract:
+                    doc = spacy_model(abstract)
+                    for i, sent in enumerate(doc.sents):
+                        s = str(sent).split()
+                        t = tags[:len(s)]
+                        if s and t:
+                            for x,y in zip(s, t):
+                                sent_tokenize.writelines(x+' '+y)
+                                sent_tokenize.writelines('\n')
+                            tags = tags[len(s):]
+                        num_instances += 1
+                        sent_tokenize.writelines('\n')
+                    num_abstracts += 1
+                tags.clear()
+                words.clear()
+        f.close()
+
+    return file_name, num_abstracts, num_instances
+
+
+
+def prepare_data(train_file, test_file):
+    #start by splitting the abstracts into sentences in both ntrain and test sets
+    trainfile, num_train_abstracts, num_train_instances = split_data(train_file)
+    testfile, num_test_abstracts, num_test_instances = split_data(test_file)
+    print('Total number of abstracts in train data {}'.format(num_train_abstracts))
+    print('Total number of instraces in train data {}'.format(num_train_instances))
+    print('Total number of abstracts in test data {}'.format(num_test_abstracts))
+    print('Total number of instraces in test data {}'.format(num_test_instances))
+
+    train = {}
+    test = {}
+
+    current_dir_files = os.listdir('.')
+    if trainfile in current_dir_files:
+        if testfile in current_dir_files:
+
+            with open('train_stanford.bmes', 'r') as f, open('test_stanford.bmes', 'r') as g:
+                file1_input, file2_input = f.readlines(), g.readlines()
+
+                s = open('train_stanford_ebm.bmes', 'w')
+                t = open('dev_stanford_ebm.bmes', 'w')
+                u = open('test_stanford_ebm.bmes', 'w')
+                v = open('raw_stanford_ebm.bmes', 'w')
+
+                train = create_dict_of_training_instances(file1_input)
+
+                test = create_dict_of_training_instances(file2_input)
+
+                train_percentage = np.round(0.8*len(train.keys()))
+                write_to_training_files(train, s, t, train_percentage)
+
+                test_percentage = np.round(0.8 * len(test.keys()))
+                write_to_training_files(test, u, v, test_percentage)
+
+                f.close()
+                g.close()
+
+
+def create_dict_of_training_instances(list_items):
+    y, t, k = '', 0, {}
+    for i in list_items:
+        if i != '\n':
+            y += i
+            y += ' '
+        else:
+            if y:
+                k[t] = y.strip()
+                t += 1
+            y = ''
+    return k
+
+def write_to_training_files(train_dict, file1, file2, split_percentage):
+    for m, n in train_dict.items():
+        if m < split_percentage:
+            n = n.split('\n')
+            for l in n:
+                file1.writelines(l.strip())
+                file1.writelines('\n')
+            file1.writelines('\n')
+        else:
+            n = n.split('\n')
+            for o in n:
+                file2.writelines(o.strip())
+                file2.writelines('\n')
+            file2.writelines('\n')
+    file1.close()
+    file2.close()
 
 if __name__ == '__main__':
-    file_path = 'ebm-data/train_ebm.bmes'
+    file_path = 'ebm-data/train_stanford_ebm.bmes'
     word_map, word_count, index2word = create_vocabularly(file_path)
 
     line_pairs, outputs = readwordTag(file_path)
@@ -147,6 +251,5 @@ if __name__ == '__main__':
     print("Least most popular words {}".format(dict(word_count_sorted[:5])))
 
     print("List of classes {}".format(tag_map))
-    print(inp[1])
-    print(inp[1].shape)
-    print(tag_map)
+    print(inp)
+    print(outputs)

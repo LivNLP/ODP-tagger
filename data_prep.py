@@ -10,13 +10,14 @@ import os
 from pprint import pprint
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+start_outcome_token, end_outcome_token = 0, 1
 
 def create_vocabularly(data_input):
     #define a tokenizer borrowing keras processing
     word_map = {}
     word_count = {}
-    index2word = {}
-    num_words = 0
+    index2word = {0: "SOO", 1:"EOO"}
+    num_words = 2
     if type(data_input) == tuple:
         all_sentences = []
         for i in data_input:
@@ -118,7 +119,14 @@ def inputAndOutput(pairs, word_map, tag_map, encoded_outputs=False, test=False):
         return prepareTensor(input_batch), prepareTensor(output_batch), lengths
 
 def prepareTensor(seq_data):
-    seq_data = [torch.tensor(i, dtype=torch.long, device=device).view(-1, 1) for i in seq_data]
+    #append the end of outcome token at the end of every sequence
+    new_seq_data = []
+    for i in seq_data:
+        e = [j for j in i]
+        e.append(end_outcome_token)
+        new_seq_data.append(e)
+
+    seq_data = [torch.tensor(i, dtype=torch.long, device=device).view(-1, 1) for i in new_seq_data]
     padded_sentences = seq_data
     # padded = nn.utils.rnn.pad_sequence(seq_datatrain_stanford_ebm.bmes)
     # padded_array = padded.cpu().numpy()
@@ -163,8 +171,6 @@ def split_data(file):
         f.close()
 
     return file_name, num_abstracts, num_instances
-
-
 
 def prepare_data(train_file, test_file):
     #start by splitting the abstracts into sentences in both ntrain and test sets
@@ -242,8 +248,9 @@ if __name__ == '__main__':
     tag_map = create_tag_map(outputs)
 
     inp, out, max_sent_len = inputAndOutput(line_pairs, word_map, tag_map)
-    
+
     print("Vocabularly size is {}".format(len(word_map)))
+    print("Vocabularly {}".format(word_map))
     print("Total number of tagged sentence instances {}".format(len(line_pairs)))
     print('Longest sentence is {}'.format(max_sent_len))
     word_count_sorted = list(sorted(word_count.items(), key=lambda x: x[1]))
@@ -253,3 +260,4 @@ if __name__ == '__main__':
     print("List of classes {}".format(tag_map))
     print(inp)
     print(outputs)
+

@@ -7,6 +7,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import re
 import spacy
 import os
+import helper_functions as utils
 from pprint import pprint
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -93,8 +94,8 @@ def create_tag_map(outputs):
     return tag_map
 
 def inputAndOutput(pairs, word_map, tag_map, encoded_outputs=False, test=False):
-    input_batch = [x for x,y in pairs]
-    output_batch = [y for x,y in pairs]
+    input_batch = [x[0] for x in pairs]
+    output_batch = [x[1] for x in pairs]
     oov_words = []
     if test:
         words_in_test = list(set([i for j in input_batch for i in j]))
@@ -104,19 +105,22 @@ def inputAndOutput(pairs, word_map, tag_map, encoded_outputs=False, test=False):
         #     i = i + 1
         #     word_map[oov] = largest_index + i
         input_batch = [[word_map[i] if i in word_map  else 0 for i in j] for j in input_batch]
-        lengths = [len(i) for i in input_batch]
+        los_length = max([len(s) for s in input_batch])
     else:
         input_batch = [[word_map[i] for i in j] for j in input_batch]
-        lengths = max([len(i) for i in input_batch])
+        los_length = max([len(s) for s in input_batch])
     if encoded_outputs:
         output_batch = [[encoded_outputs[i] for i in j] for j in output_batch]
     else:
         output_batch = [[tag_map[i] for i in j] for j in output_batch]
 
+    input_tensors, lit_len = prepareTensor(input_batch)
+    output_tensors, lot_len = prepareTensor(output_batch)
+
     if oov_words:
-        return prepareTensor(input_batch), prepareTensor(output_batch), lengths, oov_words
+        return input_tensors, output_tensors, lit_len, oov_words
     else:
-        return prepareTensor(input_batch), prepareTensor(output_batch), lengths
+        return input_tensors, output_tensors, lit_len
 
 def prepareTensor(seq_data):
     #append the end of outcome token at the end of every sequence
@@ -127,11 +131,12 @@ def prepareTensor(seq_data):
         new_seq_data.append(e)
 
     seq_data = [torch.tensor(i, dtype=torch.long, device=device).view(-1, 1) for i in new_seq_data]
+    longest_seq_data = max([t.size(0) for t in seq_data])
     padded_sentences = seq_data
     # padded = nn.utils.rnn.pad_sequence(seq_datatrain_stanford_ebm.bmes)
     # padded_array = padded.cpu().numpy()
     # padded_sentences = [list(i) for i in list(zip(*padded_array))]
-    return padded_sentences
+    return padded_sentences, longest_seq_data
 
 def split_data(file):
     #
@@ -241,7 +246,7 @@ def write_to_training_files(train_dict, file1, file2, split_percentage):
     file2.close()
 
 if __name__ == '__main__':
-    file_path = 'ebm-data/train_stanford_ebm.bmes'
+    file_path = 'ebm-data/train_ebm.bmes'
     word_map, word_count, index2word = create_vocabularly(file_path)
 
     line_pairs, outputs = readwordTag(file_path)
@@ -250,14 +255,14 @@ if __name__ == '__main__':
     inp, out, max_sent_len = inputAndOutput(line_pairs, word_map, tag_map)
 
     print("Vocabularly size is {}".format(len(word_map)))
-    print("Vocabularly {}".format(word_map))
-    print("Total number of tagged sentence instances {}".format(len(line_pairs)))
-    print('Longest sentence is {}'.format(max_sent_len))
-    word_count_sorted = list(sorted(word_count.items(), key=lambda x: x[1]))
-    print("Top most popular words {}".format(dict(word_count_sorted[-10:])))
-    print("Least most popular words {}".format(dict(word_count_sorted[:5])))
+    print(utils.fetch_embeddings('/users/phd/micheala/Documents/Github/pico-back-up/glove.840B.300d.txt', word_map, 10))
+    # word_map['']
+    # print("Vocabularly {}".format(word_map))
+    # print("Total number of tagged sentence instances {}".format(len(line_pairs)))
+    # print('Longest sentence is {}'.format(max_sent_len))
+    # word_count_sorted = list(sorted(word_count.items(), key=lambda x: x[1]))
+    # print("Top most popular words {}".format(dict(word_count_sorted[-10:])))
+    # print("Least most popular words {}".format(dict(word_count_sorted[:5])))
+    # print("List of classes {}".format(tag_map))
 
-    print("List of classes {}".format(tag_map))
-    print(inp)
-    print(outputs)
 

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import sys
 sys.path.append('/users/phd/micheala/Documents/Github/Health-outcome-tagger/')
-import outcome_model as model
+import seq_models.outcome_model as model
 import torch.optim as optim
 import data_prep as data_loader
 import helper_functions as utils
@@ -15,7 +15,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 start_outcome_token, end_outcome_token = 0, 1
 
 def train(encoder, decoder, epochs, input_words, output_tags, max_len, learning_rate, print_every, batch_size, use_teacher_forcing=False):
-    losses = []
+    losses, accuracies = [], []
     print_loss_total = 0
     plot_loss_total = 0
 
@@ -25,7 +25,7 @@ def train(encoder, decoder, epochs, input_words, output_tags, max_len, learning_
 
     loss_criterion = nn.NLLLoss()
     start = time.time()
-    epoch_loss = 0
+    epoch_loss, epoch_accuracy = 0, 0
     for epoch in range(epochs):
         training_tensors = list(zip(input_words, output_tags))
         epoch_batch_loss,epoch_batch_acc  = 0, 0
@@ -80,16 +80,23 @@ def train(encoder, decoder, epochs, input_words, output_tags, max_len, learning_
                 predicted_tags = predicted_tags[1:]
                 sim, tot = utils.token_level_accuracy(true_tags, predicted_tags)
                 batch_acc += sim/tot
+
             epoch_batch_loss += (batch_loss/len(batch_pairs))
-            epoch_batch_acc = (batch_acc/len(batch_pairs))
-            print("AVERAGE BATCH_LOSS {} AVERAGE TOKEN LEVEL ACCURACY {}".format((batch_loss/len(batch_pairs)), (epoch_batch_acc)))
+            epoch_batch_acc += (batch_acc/len(batch_pairs))
+            print("AVERAGE BATCH_LOSS {} AVERAGE TOKEN LEVEL ACCURACY {}".format((batch_loss/len(batch_pairs)), (batch_acc/len(batch_pairs))))
+
         epoch_loss += (epoch_batch_loss/batch_size)
+        epoch_accuracy += (epoch_batch_acc/batch_size)
         losses.append(epoch_batch_loss/batch_size)
+        accuracies.append(epoch_batch_acc/batch_size)
         print('EPOCH_LOSS {}'.format(epoch_batch_loss/batch_size))
+
         if (epoch+1) % print_every == 0:
             now = time.time()
-            print('Average Loss after {} epochs is {},  Duration - {:.4f}'.format((epoch+1), (epoch_loss/print_every), (now-start)))
+            print('Epoch {}, Average Loss:- {}, Average Accuracy:- {},  Duration - {:.4f}'.format((epoch+1), (epoch_loss/print_every), (epoch_accuracy/print_every), (now-start)))
             epoch_loss = 0
+
+    return encoder, decoder, losses, accuracies
 
 
 def evaluate(encoder, decoder, input_words, embedding_dim, hidden_size, output_tags, max_len, word_map, index2word):
@@ -123,28 +130,37 @@ def evaluate(encoder, decoder, input_words, embedding_dim, hidden_size, output_t
     return decoded_tags, loss.item()
 
 def load_and_process(file_path, evaluation=False):
-    word_map, word_count, index2word = data_loader.create_vocabularly(file_path)
+    word_map, word_count, index2word, num_words = data_loader.create_vocabularly(file_path)
     line_pairs, outputs = data_loader.readwordTag(file_path)
     tag_map = data_loader.create_tag_map(outputs)
     input_words, output_tags, max_len = data_loader.inputAndOutput(line_pairs, word_map, tag_map)
     if evaluation:
-        return word_map, index2word, line_pairs, outputs, input_words, output_tags, max_len
+        return word_map, index2word, line_pairs, outputs, input_words, output_tags, num_words, max_len
     else:
-        return line_pairs, word_map, index2word, outputs, input_words, output_tags, max_len
+        return line_pairs, word_map, index2word, outputs, input_words, output_tags, num_words, max_len
 
 
 if __name__=='__main__':
     #training
     file_path = 'ebm-data/train_ebm.bmes'
-    linepairs, word_map, index2word, outputs, input_words, output_tags, max_len = load_and_process(file_path)
+    linepairs, word_map, index2word, outputs, input_words, output_tags, num_words, max_len = load_and_process(file_path)
 
     embedding_dim = 50
     hidden_size = 100
     dropout=0.1
 
+    print("Vocabularly size is {}".format(len(word_map)))
+    # word_map['']
+    print("Vocabularly {}".format(word_map))
+
+
+    #weights = utils.fetch_embeddings('/users/phd/micheala/Documents/Github/pico-back-up/glove.840B.300d.txt', word_map, embedding_dim)
+
     encoder = model.outcomeEncoder(embedding_dim=embedding_dim,
                                    hidden_size=hidden_size,
-                                   vocab_size=len(word_map)).to(device)
+                                   vocab_size=num_words,
+                                   weights_tensor=None,
+                                   use_pretrained_vectors=False).to(device)
 
     decoder = model.outcomeDecoder(hidden_size=hidden_size,
                                    output_size=len(outputs),
@@ -157,17 +173,22 @@ if __name__=='__main__':
                                            n_layers=1,
                                            max_length=max_len).to(device)
 
-    train(encoder=encoder,
-          decoder=attndecoder,
-          input_words=input_words,
-          output_tags=output_tags,
-          max_len=max_len,
-          epochs=100,
-          batch_size=375,
-          learning_rate=0.001,
-          print_every=5)
+    enc, dec, losses, accuracy = train(encoder=encoder,
+                                      decoder=attndecoder,
+                                      input_words=input_words,
+                                      output_tags=output_tags,
+                                      max_len=max_len,
+                                      epochs=50,
+                                      batch_size=375,
+                                      learning_rate=0.001,
+                                      print_every=5)
 
+    #save trained model parameters
+    torch.save(enc, os.path.abspath('seq_models'))
+    torch.save(dec, os.path.abspath('seq_models'))
 
+    utils.build_line_plots(os.path.join(os.path.curdir, 'plots'), losses, 'T_model_1_loss', ['epochs', 'loss'], xticks=2)
+    utils.build_line_plots(os.path.join(os.path.curdir, 'plots'), accuracy, 'T_model_1_loss', ['epochs', 'accuracy'], xticks=2)
     # #testing
     #
     # w, i, l, o, input_test_words, output_test_tags, max_l = load_and_process("ebm-data/test_ebm.bmes", evaluation=True)

@@ -6,10 +6,13 @@ from torch import optim
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class outcomeEncoder(nn.Module):
-    def __init__(self, embedding_dim, hidden_size, vocab_size, bidirectional=False):
+    def __init__(self, embedding_dim, hidden_size, vocab_size, weights_tensor=None, use_pretrained_vectors=False, bidirectional=False):
         super(outcomeEncoder, self).__init__()
         self.hidden_size = hidden_size
-        self.embeddings = nn.Embedding(vocab_size, embedding_dim)
+        if use_pretrained_vectors:
+            self.embeddings = nn.Embedding.from_pretrained(weights_tensor)
+        else:
+            self.embeddings = nn.Embedding(vocab_size, embedding_dim)
         if bidirectional:
             self.lstm = nn.LSTM(input_size=embedding_dim, hidden_size=hidden_size, bidirectional=True)
         else:

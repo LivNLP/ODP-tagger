@@ -43,7 +43,7 @@ def create_vocabularly(data_input):
             num_words += 1
         else:
             word_count[word] += 1
-    return word_map, word_count, index2word
+    return word_map, word_count, index2word, num_words
 
 
 def readwordTag(data_input):
@@ -105,10 +105,8 @@ def inputAndOutput(pairs, word_map, tag_map, encoded_outputs=False, test=False):
         #     i = i + 1
         #     word_map[oov] = largest_index + i
         input_batch = [[word_map[i] if i in word_map  else 0 for i in j] for j in input_batch]
-        los_length = max([len(s) for s in input_batch])
     else:
         input_batch = [[word_map[i] for i in j] for j in input_batch]
-        los_length = max([len(s) for s in input_batch])
     if encoded_outputs:
         output_batch = [[encoded_outputs[i] for i in j] for j in output_batch]
     else:
@@ -247,22 +245,22 @@ def write_to_training_files(train_dict, file1, file2, split_percentage):
 
 if __name__ == '__main__':
     file_path = 'ebm-data/train_ebm.bmes'
-    word_map, word_count, index2word = create_vocabularly(file_path)
+    word_map, word_count, index2word, num_words = create_vocabularly(file_path)
 
     line_pairs, outputs = readwordTag(file_path)
     tag_map = create_tag_map(outputs)
 
     inp, out, max_sent_len = inputAndOutput(line_pairs, word_map, tag_map)
 
-    print("Vocabularly size is {}".format(len(word_map)))
-    print(utils.fetch_embeddings('/users/phd/micheala/Documents/Github/pico-back-up/glove.840B.300d.txt', word_map, 10))
+
+    print("Vocabularly size is {}".format(num_words))
     # word_map['']
-    # print("Vocabularly {}".format(word_map))
-    # print("Total number of tagged sentence instances {}".format(len(line_pairs)))
-    # print('Longest sentence is {}'.format(max_sent_len))
-    # word_count_sorted = list(sorted(word_count.items(), key=lambda x: x[1]))
-    # print("Top most popular words {}".format(dict(word_count_sorted[-10:])))
-    # print("Least most popular words {}".format(dict(word_count_sorted[:5])))
-    # print("List of classes {}".format(tag_map))
+    print("Vocabularly {}".format(word_map))
+    print("Total number of tagged sentence instances {}".format(len(line_pairs)))
+    print('Longest sentence is {}'.format(max_sent_len))
+    word_count_sorted = list(sorted(word_count.items(), key=lambda x: x[1]))
+    print("Top most popular words {}".format(dict(word_count_sorted[-10:])))
+    print("Least most popular words {}".format(dict(word_count_sorted[:5])))
+    print("List of classes {}".format(tag_map))
 
 

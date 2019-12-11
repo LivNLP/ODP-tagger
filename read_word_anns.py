@@ -1,9 +1,6 @@
 from docx import *
 import xmltodict
-import zipfile
-import xml.dom.minidom
 import re
-import json
 import pandas as pd
 import xml.etree.ElementTree as ET
 from xml.etree.ElementTree import XML
@@ -148,9 +145,13 @@ def pickup_tools(t):
         tools.append(' '.join(u.split()))
     return tools
 
-print(os.getcwd())
-path = 'ebm-data/comet-data/'
-path_dir = os.path.dirname(path)
-files = os.listdir(path_dir)
-files_list = [path_dir+'/'+i for i in files]
-extract_highlighted_words(files_list)
+def main():
+    path = 'ebm-data/comet-data/'
+    path_dir = os.path.dirname(path)
+    files = os.listdir(path_dir)
+    files_list = [path_dir+'/'+i for i in files]
+    extract_highlighted_words(files_list)
+
+if __name__ == '__main__':
+    print(os.getcwd())
+    #main()

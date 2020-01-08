@@ -12,6 +12,7 @@ import torch.nn as nn
 import torch
 import json
 import pprint
+import pickle
 from torch.utils.data import DataLoader, SequentialSampler, TensorDataset
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm
@@ -166,6 +167,8 @@ def main():
                         help="The input data dir. Should contain the training files for the CoNLL-2003 NER task.")
     parser.add_argument("--file_name", default="train", type=str,
                         help="e.g dev for development dataset, train for training dataset etc")
+    parser.add_argument("--emb_dim", default=384, type=int,
+                        help="feture dimension")
     parser.add_argument("--model_type", default=None, type=str, required=True,
                         help="Model type selected in the list: " + ", ".join(MODEL_CLASSES.keys()))
     parser.add_argument("--model_name_or_path", default=None, type=str, required=True,
@@ -184,7 +187,7 @@ def main():
                              "than this will be truncated, sequences shorter will be padded.")
     parser.add_argument("--do_lower_case", action="store_true",
                         help="Set this flag if you are using an uncased model.")
-    parser.add_argument("--per_gpu_eval_batch_size", default=8, type=int,
+    parser.add_argument("--per_gpu_eval_batch_size", default=32, type=int,
                         help="Batch size per GPU/CPU for evaluation.")
     parser.add_argument("--no_cuda", action="store_true",
                         help="Avoid using CUDA when available")
@@ -238,7 +241,7 @@ def main():
     if args.n_gpu > 1:
         model = torch.nn.DataParallel(model)
 
-    #featch the sequence outputs as features from the Bert model encoder and construct a json with each token with their corresponding feature vector
+    #fetch the sequence outputs as features from the Bert model encoder and construct a json with each token with their corresponding feature vector
     count = 0
     Instances = {}
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
@@ -254,14 +257,29 @@ def main():
                 token_ids = inputs["input_ids"][b].cpu().numpy().tolist()
                 tokens = tokenizer.convert_ids_to_tokens(token_ids)
                 t = {}
+                d = 0
                 for c, tok in enumerate(tokens):
-                    if tok != '[PAD]':
-                        layers_output = [round(i.item(), 6) for i in output[c]]
-                        t['{}_*_{}'.format(tok, c+1)] = layers_output
-                Instances['Instance_{}'.format(count+1)] = t
+                    if c == d:
+                        if tok not in ['[CLS]', '[PAD]', '[SEP]']:
+                            word = tok
+                            layers_output = np.array([round(i.item(), 6) for i in output[c]])
+                            for k in range(c+1, len(tokens)):
+                                if tokens[k].startswith("##"):
+                                    word += tokens[k]
+                                    layers_output = np.add(layers_output, np.array([round(i.item(), 6) for i in output[k]]))
+                                    d = k
+                                else:
+                                    d += 1
+                                    break
+                            t['{}_*_{}'.format(word, c + 1)] = layers_output[:args.emb_dim]
+                        else:
+                            d += 1
+
+                Instances[count+1] = t
                 count += 1
-    with open(os.path.join(args.output_dir, 'bert_embeddings_{}.json'.format(args.file_name)), 'w', encoding="utf-8") as writer:
-        json.dump(Instances, writer, indent=4)
+
+    with open(os.path.join(os.path.abspath(args.output_dir), 'bert_embeddings_{}.pickle'.format(args.file_name)), 'wb') as writer:
+        pickle.dump(Instances, writer)
 
 if __name__ == "__main__":
     main()

@@ -7,6 +7,7 @@ from __future__ import absolute_import, division, print_function
 import argparse
 import logging
 import os
+import re
 import numpy as np
 import torch.nn as nn
 import torch
@@ -241,9 +242,22 @@ def main():
     if args.n_gpu > 1:
         model = torch.nn.DataParallel(model)
 
+    #create a list of the example instances directly from the file to use for reconciling the tokenization differences between BERT and the health tagger model
+    with open(os.path.join(args.data_dir, args.file_name+'.txt'), 'r') as rf:
+        rf_lines = rf.readlines()
+        file_content, file_instance = [], []
+        for v in rf_lines:
+            if v != '\n':
+                file_instance.append(v.split()[0].strip())
+            else:
+                if file_instance:
+                    file_content.append(file_instance.copy())
+                file_instance.clear()
+
     #fetch the sequence outputs as features from the Bert model encoder and construct a json with each token with their corresponding feature vector
     count = 0
     Instances = {}
+
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
         batch = tuple(t.to(args.device) for t in batch)
         with torch.no_grad():
@@ -253,31 +267,49 @@ def main():
                 inputs["token_type_ids"] = batch[2] if args.model_type in ["bert","xlnet"] else None  # XLM and RoBERTa don"t use segment_ids
 
             outputs, _ = model(**inputs)
+            print('--------------------------------------------------------------NEW BATCH--------------------------------------------------------------')
             for b, output in enumerate(outputs):
                 token_ids = inputs["input_ids"][b].cpu().numpy().tolist()
                 tokens = tokenizer.convert_ids_to_tokens(token_ids)
-                t = {}
+                t = []
                 d = 0
+                x = tokenizer.convert_tokens_to_string(tokens)
+                #print(' '.join(i for i in x.split() if i not in ['[CLS]', '[PAD]', '[SEP]']))
+                #print(' '.join(file_content[count]))
+                m = 0
+                #print(tokens)
                 for c, tok in enumerate(tokens):
                     if c == d:
                         if tok not in ['[CLS]', '[PAD]', '[SEP]']:
+                            #print(tok)
                             word = tok
                             layers_output = np.array([round(i.item(), 6) for i in output[c]])
-                            for k in range(c+1, len(tokens)):
-                                if tokens[k].startswith("##"):
-                                    word += tokens[k]
-                                    layers_output = np.add(layers_output, np.array([round(i.item(), 6) for i in output[k]]))
-                                    d = k
-                                else:
-                                    d += 1
-                                    break
-                            t['{}_*_{}'.format(word, c + 1)] = layers_output[:args.emb_dim]
+                            if file_content[count][m] == word:
+                                #print('Immediate', word, file_content[count][m])
+                                d += 1
+                                m += 1
+                                t.append((word, layers_output))
+                            else:
+                                for k in range(c+1, len(tokens)):
+                                    if tokens[k] not in ['[CLS]', '[PAD]', '[SEP]']:
+                                        additional_toks = re.sub('^(##)', '', tokens[k])
+                                        word += additional_toks.strip()
+                                        #print(word)
+                                        layers_output = np.add(layers_output, np.array([round(i.item(), 6) for i in output[k]]))
+                                        if file_content[count][m] == word:
+                                            #print(word, file_content[count][m], k, d)
+                                            m += 1
+                                            curr_loc = k
+                                            t.append((word, layers_output))
+                                            break
+                                #print('current location', curr_loc)
+                                d = curr_loc + 1
                         else:
                             d += 1
-
+                    else:
+                        pass
                 Instances[count+1] = t
                 count += 1
-
     with open(os.path.join(os.path.abspath(args.output_dir), 'bert_embeddings_{}.pickle'.format(args.file_name)), 'wb') as writer:
         pickle.dump(Instances, writer)
 

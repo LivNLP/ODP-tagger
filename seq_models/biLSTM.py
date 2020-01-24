@@ -11,17 +11,22 @@ import data_prep as dp
 import numpy as np
 
 class BiLstm_model(nn.Module):
-    def __init__(self, embedding_dim, hidden_size, vocab_size, pos_size, tag_map, dropout_rate, pos=False, weights_tensor=None, use_pretrained_embeddings=False, crf=False):
+    def __init__(self, embedding_dim, hidden_size, vocab_size, pos_size, tag_map, word_map, dropout_rate, pos=False, weights_tensor=None, use_pretrained_embeddings=False,
+                 use_bert_features=False, crf=False):
         super(BiLstm_model, self).__init__()
         self.outputsize = len(tag_map)
         self.hidden_size = hidden_size
         self.embedding_dim = embedding_dim
         self.pos = pos
+        self.word_map = word_map
         self.use_pretrained_embeddings = use_pretrained_embeddings
-        if self.use_pretrained_embeddings:
+        self.use_bert_features = use_bert_features
+        if self.use_pretrained_embeddings and not self.use_bert_features:
             # weights_tensor = weights_tensor.cpu() if weights_tensor.type().__contains__('cuda') else weights_tensor
             weights = [list(i.numpy())[:embedding_dim] for i in weights_tensor]
             self.weights = torch.FloatTensor(weights).to(dp.device)
+        elif self.use_pretrained_embeddings and self.use_bert_features:
+            self.weights = weights_tensor
         else:
             self.embedding = nn.Embedding(vocab_size, embedding_dim)
 
@@ -47,7 +52,7 @@ class BiLstm_model(nn.Module):
         else:
             word_embedding = self.dropout(self.embedding(input_seq))
         wlstm_out, _ = self.word_lstm(word_embedding.view(len(input_seq), 1, -1), self.hidden)
-
+        #print('wlstm_out', wlstm_out.size())
         pos_embedding = self.dropout(self.pos_embedding(pos_seq))
         plstm_out, _ = self.pos_lstm(pos_embedding.view(len(pos_seq), 1, -1), self.hidden)
 
@@ -61,21 +66,32 @@ class BiLstm_model(nn.Module):
         dense_layer = self.maphiddenToOutput(f_out_put.view(len(input_seq), -1))
         return dense_layer
 
-    def obtain_seq_embedding(self, seq, pretrained_emb):
-        seq_len = len(seq)
+    def obtain_seq_embedding(self, input_seq, features):
+        seq_len = len(input_seq)
         embs = torch.zeros((seq_len, 1, self.embedding_dim), device=dp.device)
-        for i,j in enumerate(seq):
-            embs[i] = pretrained_emb[j]
+        if self.use_bert_features:
+            input_seq = [i.item() for i in input_seq]
+            for i in features:
+                words = [w[0] for w in features[i]]
+                instance = [self.word_map[i] for i in words]
+                if input_seq == instance:
+                    for k, v in enumerate(features[i]):
+                        if type(v[1]) != torch.Tensor:
+                            embs[k] = torch.tensor(v[1][:self.embedding_dim])
+                        else:
+                            embs[k] = v[1][:self.embedding_dim]
+
+        else:
+            for i,j in enumerate(input_seq):
+                embs[i] = features[j]
+
         return embs
 
     def forward_batch(self, input_seq, pos_seq, hidden):
         #padding
         sent_lens = sorted([len(i) for i in input_seq], reverse=True)
         sentences = sorted(input_seq, key=lambda x:len(x), reverse=True)
-        print(sentences[:2])
         pad_sentences = pad_sequence(sentences, batccath_first=True)
-        print(pad_sentences[:2])
-        print(sent_lens)
         packed_words = pack_padded_sequence(pad_sentences, sent_lens, batch_first=True)
         packed_words = self.dropout(packed_words)
         output, hidden = self.lstm(packed_words, hidden)

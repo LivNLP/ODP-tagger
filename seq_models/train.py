@@ -24,7 +24,7 @@ import time
 #from pytorchtools import EarlyStopping
 import matplotlib.pyplot as plt
 
-def train(model, train_data, val_data, model_config, other_config, pltdir, args, label_weights, balanced_loss=False, loss_method=None, gamma=None):
+def train(model, train_data, model_config, other_config, pltdir, args, label_weights, val_data, balanced_loss=False, loss_method=None, gamma=None):
 
     target_weights = torch.FloatTensor([np.round(i, 5) for i in label_weights])
     target_weights = target_weights.to(dp.device)
@@ -56,6 +56,8 @@ def train(model, train_data, val_data, model_config, other_config, pltdir, args,
                 model.zero_grad()
                 hidden = model.hidden
                 sentence, pos, tags = batch[0][0].to(dp.device), batch[0][1].to(dp.device), batch[1].to(dp.device)
+                sd = [i.item() for i in sentence]
+                #print(' '.join([other_config['index2word'][i] for i in sd]))
                 if 'crf' in model_config and model_config['crf'] == True:
                     l, feats = model(sentence, pos, hidden, tags)
                     path_score, decoded_best_path = model.decode(feats)
@@ -78,7 +80,7 @@ def train(model, train_data, val_data, model_config, other_config, pltdir, args,
                 l.backward()
                 optimizer.step()
 
-            #print('Batch Average accuracy:- {:.3f} and Average loss:- {:.3f}'.format((acc / batch_size), (loss / batch_size)))
+            print('Batch Average accuracy:- {:.3f} and Average loss:- {:.3f}'.format((acc / args.batch_size), (loss / args.batch_size)))
             batch_acc += acc/args.batch_size
             batch_loss += loss/args.batch_size
             batch_count += 1
@@ -89,36 +91,33 @@ def train(model, train_data, val_data, model_config, other_config, pltdir, args,
         average_loss.append((batch_loss/batch_count))
         time_taken += (time.time() - start)
         print('Epoch {} acc {:.3f} and epoch loss {:.3f}. Duration {:.1f}'.format(epoch_count, (batch_acc/batch_count)*100, (batch_loss/batch_count), (time.time() - start)))
+        if args.evaluate_during_training:
+            if epoch == (args.n_epochs - 1):
+                print('EVALUATION AFTER FINAL EPOCH')
+                actual_sentences, predicted_sentences, evaluation_accuracy, F_measure, AP, fig, classification = evaluate(model, val_data, model_config, other_config, loss_criterion=calculate_loss, final_eval=True)
 
-        if epoch == (args.n_epochs - 1):
-            print('EVALUATION AFTER FINAL EPOCH')
-            actual_sentences, predicted_sentences, evaluation_accuracy, F_measure, AP, fig, classification = evaluate(model, val_data, model_config, other_config, loss_criterion=calculate_loss, final_eval=True)
+                with open(os.path.join(pltdir, 'eval_results.txt'), 'w') as h:
+                    h.write('Validation Classification Matrix \n{}\n\n'.format(classification))
+                    h.write('Average Precision: {:.3f}\n'.format(AP))
+                    h.write('F1 score: {:.3f}'.format(F_measure))
+                    h.close()
 
-            with open(os.path.join(pltdir, 'eval_results.txt'), 'w') as h:
-                h.write('Validation Classification Matrix \n{}\n\n'.format(classification))
-                h.write('Average Precision: {:.3f}\n'.format(AP))
-                h.write('F1 score: {:.3f}'.format(F_measure))
-                h.close()
-
-            torch.save(model.state_dict(), os.path.join(pltdir, os.path.basename(args.model_loc)+'.pth'))
-            print('Evaluation accuracy: {:.3f}, F1 score: {:.3f}, Average precision: {:.3f}'.format(evaluation_accuracy*100, F_measure*100, AP*100))
-            print('Time taken: {}s'.format(time.time() - start))
-        else:
-            evaluation_accuracy, F_measure, AP, classification, fig = evaluate(model, val_data, model_config, other_config, loss_criterion=calculate_loss, final_eval=False)
-            print('Evaluation accuracy: {:.3f}, F1 score: {:.3f}, Average precision: {:.3f}'.format(evaluation_accuracy*100, F_measure*100, AP*100))
-            print('Time taken: {:.1f}s'.format(time.time() - start))
-
-        F1_scores.append(F_measure)
+                torch.save(model.state_dict(), os.path.join(pltdir, os.path.basename(args.args.outputdir)+'.pth'))
+                print('Evaluation accuracy: {:.3f}, F1 score: {:.3f}, Average precision: {:.3f}'.format(evaluation_accuracy*100, F_measure*100, AP*100))
+                print('Time taken: {}s'.format(time.time() - start))
+            else:
+                evaluation_accuracy, F_measure, AP, classification, fig = evaluate(model, val_data, model_config, other_config, loss_criterion=calculate_loss, final_eval=False)
+                print('Evaluation accuracy: {:.3f}, F1 score: {:.3f}, Average precision: {:.3f}'.format(evaluation_accuracy*100, F_measure*100, AP*100))
+                print('Time taken: {:.1f}s'.format(time.time() - start))
+            F1_scores.append(F_measure)
+            
         epoch_count += 1
 
     #visulaize training
-    utils.visualize_model(average_accuracy, average_loss, os.path.basename(args.model_loc), pltdir)
+    utils.visualize_model(average_accuracy, average_loss, os.path.basename(args.outputdir), pltdir)
     print('Total time taken to train: {}s'.format(np.round(time_taken, 2)))
 
-    #test the model
-    testing(model, pltdir, args)
-
-    return model, F_measure
+    return model, calculate_loss
 
 
 def evaluate(model, test_data, model_config, other_config, loss_criterion=None, final_eval=False):
@@ -172,118 +171,140 @@ def evaluate(model, test_data, model_config, other_config, loss_criterion=None, 
             return actual_sentences, predicted_sentences, evaluation_accuracy, F_measure, AP, fig, classification
     return evaluation_accuracy, F_measure, AP, fig, classification
 
-def testing(best_model, plot_dir, args):
-    # testing
-    print('TESTING BEGINS')
-    model_config_test, batching_config_test, other_config_test = ut.load_data(args.test_data_file, args)
-    test_data = ut.batch_up_sets(batching_config_test, other_config_test, args=args, test=True)
-    best_model.eval()
-    actual_sentences, predicted_sentences, evaluation_accuracy, F_measure, AP, fig, classification = evaluate(best_model,
-                                                                                                              test_data,
-                                                                                                              model_config_test,
-                                                                                                              other_config_test,
-                                                                                                              final_eval=True)
-
-
-    with open(os.path.join(plot_dir, 'decoded.out'), 'w') as d, open(os.path.join(plot_dir, 'test_results.txt'), 'w') as h, open(args.test_data_file, 'r') as q:
-        h.write('Test Classification Matrix \n{}\n\n'.format(classification))
-        h.write('Average Precision: {:.3f}\n'.format(AP))
-        h.write('F1 score: {:.3f}'.format(F_measure))
-        test_instances = q.readlines()
-        f = [i.split()[0] if i != '\n' else i for i in test_instances]
-        k, test_instances_list = '', []
-        for i in f:
-            if i != '\n':
-                k += ' {}'.format(i)
-            elif i == '\n':
-                if k:
-                    test_instances_list.append(k.strip())
-                k = ''
-
-        for t, a, p in zip(test_instances_list, actual_sentences, predicted_sentences):
-            for t_s, a_s, p_s in zip(t.split(), a.split(), p.split()):
-                d.write('{} {} {}\n'.format(t_s.strip(), a_s.strip(), p_s.strip()))
-            d.write('\n')
-        h.close()
-        d.close()
-        q.close()
-    print('Test accuracy: {}, F1 score: {:.3f}, Average precision: {:.3f}'.format(evaluation_accuracy, F_measure, AP))
-
+def eval_dur_train(args, mode):
+    batching_configurations_eval = ut.load_data(args, mode=mode)
+    eval_data = ut.batch_up_sets(args=args, batch_config=batching_configurations_eval, mode=mode)
+    return eval_data
 
 def main():
-    print(os.path.abspath(os.path.curdir))
-    # load data
-    file_path = '../ebm-data/stanford'
-    train_data_file = os.path.join(file_path, 'train_stanford_ebm.bmes')
-    test_data_file = os.path.join(file_path, 'test_stanford_ebm_org.bmes')
-    raw_data_file = os.path.join(file_path, 'raw_stanford_ebm_org.bmes')
-    model_name = "final_model"
-    plot_dir = "plots-v3/" + model_name
+    print('Current file location :', os.path.abspath(os.path.curdir))
 
-    #set commandline parameters
+    data_dir = '../ebm-data/stanford/'
+    output_dir = '../output/H_O_T'
+    model_name = 'default_H_O_T'
+    # set commandline parameters
     par = argparse.ArgumentParser()
-    par.add_argument("--model_loc", default=plot_dir, type=str, help="Specify the location where you want the trained model to be stored")
-    par.add_argument("--train_val_data", default=train_data_file, type=str, help="Source of training and validation data")
-    par.add_argument("--test_data_file", default=test_data_file, type=str, help="Source of testing data")
+    par.add_argument("--data", default=data_dir, type=str, help="Source of training, validation and test data")
+    par.add_argument("--outputdir", default=output_dir, type=str, help="Source of training, validation and test data")
     par.add_argument("--embedding_dim", default=150, type=int, help="size of word embedding")
     par.add_argument("--hidden_dim", default=256, type=int, help="number of neurons in hidden layer")
     par.add_argument("--batch_size", default=250, type=int, help="batch_size")
     par.add_argument("--learning_rate", default=0.1, type=float, help="learning rate")
     par.add_argument("--n_epochs", default=100, type=int, help="epochs")
     par.add_argument("--dropout_rate", default=0.2, type=float, help="epochs")
-    par.add_argument("--pos", default=True, type=bool, help="'True'-use parts of speech or 'False'-ignore them")
+    par.add_argument("--pos", action='store_true', help="'True'-use parts of speech or 'False'-ignore them")
+    par.add_argument("--train_dev_test", default='train', type=str, required=True, help="Turn on or off training, evaluation and prediction phases")
     par.add_argument("--pretrained_embeddings", default='../word_vecs/bionlp_wordvec/pubmed_1.pickle', type=str, help="source of pretrained embeddings")
-    par.add_argument("--use_pretrained_embeddings", default=True, type=bool, help="use or ignore pretrained embeddings")
-    par.add_argument("--crf_layer", default=False, type=bool, help="use or ignore crf_layer")
+    par.add_argument("--use_pretrained_embeddings", action='store_true', help="use or ignore pretrained embeddings")
+    par.add_argument("--use_bert_features", action='store_true', help="use or ignore pretrained embeddings")
+    par.add_argument("--crf_layer", action='store_true', help="use or ignore crf_layer")
     par.add_argument("--neural", default='lstm', type=str, help="LSTM or GRU or RNN")
-    par.add_argument("--sampling", default=None, type=int, help="percentage to use when sampling down the majority calss labels")
+    par.add_argument("--train_val_split", default=None, help="split the training data into train and validation sets")
+    par.add_argument("--evaluate_during_training", action="store_true", help="Whether to run evaluation during training at each logging step.")
+    par.add_argument("--sampling_percentage", default=None, type=int, help="percentage to use when sampling down the majority calss labels")
     par.add_argument("--sampling_technique", default='under', type=str, help="sampling strategy")
 
     args = par.parse_args()
-
-    # file_path = '../conll_data'
-    # file_list = os.listdir(file_path)
-    # train_data_file = [os.path.abspath(os.path.join(file_path, i)) for i in file_list]
-
-    #load data
-    model_configurations_train, batching_configurations_train, other_config_train = ut.load_data(train_data_file, args)
-
-    # applying both sampling and reweighting classes using a class imbalanced loss
-    if type(train_data_file) == str:
-        train_data, val_data, label_weights = ut.batch_up_sets(batching_configurations_train, other_config_train, args)
-    else:
-        train_data, val_data, label_weights = ut.batch_up_sets(batching_configurations_train, other_config_train, args)
-        combined_data = train_data + val_data
-        train_data, val_data = combined_data[:other_config_train['train_size']], combined_data[other_config_train['train_size']:]
-
     # create storacge location
-    pltdir = utils.create_directories_per_series_des(args.model_loc)
-    with open(os.path.join(pltdir, 'configuration.txt'), 'w') as cf:
+    args.outputdir = utils.create_directories_per_series_des(args.outputdir)
+    with open(os.path.join(args.outputdir, 'configuration.txt'), 'w') as cf:
         for k, v in vars(args).items():
             cf.write('{}: {}\n'.format(k, v))
-    # load_model and beging training it on the loaded data
-    print('\nTRAINING BEGINS\n')
-    model = NNModel(model_configurations_train).to(dp.device)
-    # initialize weights
-    for param, values in model.named_parameters():
-        if param.__contains__('weight'):
-            torch.nn.init.xavier_normal_(values)
-        elif param.__contains__('bias'):
-            torch.nn.init.constant_(values, 0.0)
+        cf.close()
 
-    best_model, F1_score = train(model=model,
-                                 train_data=train_data,
-                                 val_data=val_data,
-                                 model_config=model_configurations_train,
-                                 other_config=other_config_train,
-                                 pltdir=pltdir,
-                                 args=args,
-                                 label_weights=label_weights,
-                                 balanced_loss=True,
-                                 loss_method=None,
-                                 gamma=None)
+    if args.use_pretrained_embeddings and args.use_bert_features:
+        print("You are using pretrained features and particularly bert features")
+        if not os.path.basename(os.path.abspath(args.pretrained_embeddings)).lower().__contains__('bert'):
+            raise ValueError("Double check that you're passing bert pickle object file, use argument --pretrained_embeddings")
+        else:
+            print("Right bert features passed")
+    elif args.use_pretrained_embeddings:
+        print("You are using pretrained pubmed vectors")
+    else:
+        print("You are using default embeddings")
 
+    #load data
+    modes = args.train_dev_test.split()
+    
+    if 'train' in modes:
+        model_configurations, batching_configurations_train, other_configurations = ut.load_data(args, mode=modes[0])
+        train_data, label_weights = ut.batch_up_sets(args=args, batch_config=batching_configurations_train, other_config=other_configurations, mode=modes[0])
+        model = NNModel(model_configurations).to(dp.device)
+        # initialize weights
+        for param, values in model.named_parameters():
+            if param.__contains__('weight'):
+                torch.nn.init.xavier_normal_(values)
+            elif param.__contains__('bias'):
+                torch.nn.init.constant_(values, 0.0)
+        # load_model and beging training it on the loaded data
+        print('\nTRAINING BEGINS\n')
+        best_model, calculate_loss = train(model=model,
+                                           train_data=train_data,
+                                           val_data= None if not args.evaluate_during_training else eval_dur_train(args, modes[1]),
+                                           model_config=model_configurations,
+                                           other_config=other_configurations,
+                                           pltdir=args.outputdir,
+                                           args=args,
+                                           label_weights=label_weights,
+                                           balanced_loss=True,
+                                           loss_method=None,
+                                           gamma=None)
 
+    if 'eval' in modes:
+        modes[1] = 'dev'
+        print('\nEVALUATION BEGINS\n')
+        batching_configurations_eval = ut.load_data(args, mode=modes[1])
+        eval_data = ut.batch_up_sets(args=args, batch_config=batching_configurations_eval, mode=modes[1])
+
+        actual_sentences, predicted_sentences, evaluation_accuracy, F_measure, AP, fig, classification = evaluate(model=best_model,
+                                                                                                                  test_data=eval_data,
+                                                                                                                  model_config=model_configurations,
+                                                                                                                  other_config=other_configurations,
+                                                                                                                  loss_criterion=calculate_loss,
+                                                                                                                  final_eval=True)
+
+        with open(os.path.join(args.outputdir, 'eval_results.txt'), 'w') as h:
+            h.write('Validation Classification Matrix \n{}\n\n'.format(classification))
+            h.write('Average Precision: {:.3f}\n'.format(AP))
+            h.write('F1 score: {:.3f}'.format(F_measure))
+            h.close()
+
+        torch.save(best_model.state_dict(), os.path.join(args.outputdir, model_name + '.pth'))
+        print('Evaluation accuracy: {:.3f}, F1 score: {:.3f}, Average precision: {:.3f}'.format(evaluation_accuracy * 100, F_measure * 100, AP * 100))
+
+    if 'test' in modes:
+        batching_configurations_test = ut.load_data(args, mode=modes[2])
+        test_data = ut.batch_up_sets(args=args, batch_config=batching_configurations_test, mode=modes[2])
+        actual_sentences, predicted_sentences, evaluation_accuracy, F_measure, AP, fig, classification = evaluate(model=model,
+                                                                                                                  test_data=eval_data,
+                                                                                                                  model_config=model_configurations,
+                                                                                                                  other_config=other_configurations,
+                                                                                                                  loss_criterion=calculate_loss,
+                                                                                                                  final_eval=True)
+
+        with open(os.path.join(args.outputdir, 'decoded.out'), 'w') as d, open(os.path.join(args.outputdir, 'test_results.txt'), 'w') as h, open(args.test_data_file, 'r') as q:
+            h.write('Test Classification Matrix \n{}\n\n'.format(classification))
+            h.write('Average Precision: {:.3f}\n'.format(AP))
+            h.write('F1 score: {:.3f}'.format(F_measure))
+            test_instances = q.readlines()
+            f = [i.split()[0] if i != '\n' else i for i in test_instances]
+            k, test_instances_list = '', []
+            for i in f:
+                if i != '\n':
+                    k += ' {}'.format(i)
+                elif i == '\n':
+                    if k:
+                        test_instances_list.append(k.strip())
+                    k = ''
+
+            for t, a, p in zip(test_instances_list, actual_sentences, predicted_sentences):
+                for t_s, a_s, p_s in zip(t.split(), a.split(), p.split()):
+                    d.write('{} {} {}\n'.format(t_s.strip(), a_s.strip(), p_s.strip()))
+                d.write('\n')
+            h.close()
+            d.close()
+            q.close()
+        print('Test accuracy: {}, F1 score: {:.3f}, Average precision: {:.3f}'.format(evaluation_accuracy, F_measure, AP))
 
 if __name__=='__main__':
     main()

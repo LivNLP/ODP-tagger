@@ -202,8 +202,7 @@ def extract_annotations(files, path):
                                     start = phrases[0].split()
                                     tagged_items, inner_phrase = case1_case2_case3_preprocess(phrases[0], tagged_items, 'S', x)
                                     s_labels = []
-                                    print(sss)
-                                    print(phrases)
+
                                     for i in range(len(phrases)):
                                         if i > 0:
                                             last_phrase, end = ' ', re.split(' ', phrases[i])
@@ -224,7 +223,7 @@ def extract_annotations(files, path):
                                                                     tagged_items.append('X')
                                                                     n = j
                                                                     break
-                                                            print('Curly braces words:', ' '.join(curly_braces_text))
+                                                            #print('Curly braces words:', ' '.join(curly_braces_text))
                                                         else:
                                                             if i == len(phrases)-1:
                                                                 if h == len(end) - 1:
@@ -238,7 +237,6 @@ def extract_annotations(files, path):
                                             tag_label = capture_multi_labels(tags_no[i])
                                             s_labels.append(tag_label)
                                             last_phrase = ' '.join(start[:(x)]) + last_phrase
-                                            print(last_phrase)
                                             doc_tag_list.append((tags[i], last_phrase))
 
                                     last_tag_label = capture_multi_labels(tags_no[0])
@@ -248,7 +246,7 @@ def extract_annotations(files, path):
                                             tag_labels.append(s_labels[0])
                                     else:
                                         print('ATTENTION')
-                                    print(tagged_items)
+
                                     doc_tag_list.append((tags[0], inner_phrase))
                                     org_abs_text = org_abs_text.replace(sss, ' '+' '.join([str(i) for i in tagged_items])+' ', 1)
                                     #org_abs_text = re.sub(re.escape(sss), ' '+' '.join([str(i) for i in tagged_items])+' ', org_abs_text) #annotate with BIO tag
@@ -271,20 +269,22 @@ def extract_annotations(files, path):
                                     doc_y = [y]*len(doc_x)
                                     for text_pos,label in zip(doc_x, doc_y):
                                         text, pos = text_pos
+                                        text, pos, label = text.strip(), pos.strip(), label.strip()
                                         if text.endswith(']') and not text.startswith('['):
                                             text = remove(text, ['\]'])
-                                        if re.search('(\[T)', text):
-                                            text = remove(text, ['(\[T)'])
-                                        else:
-                                            if any(i in label for i in ['-outcome', 'X', 'Seperator']):
+                                        if re.search('(\[T)|(\{\[T)', text):
+                                            text = remove(text, ['(\[T)', '\{\[T'])
+                                            label = remove(label, ['(\[T)', '\{\[T'])
+                                        if text:
+                                            if re.search('(-outcome)$|^X$|^(Seperator)$', label):
                                                 text = remove(text=text, unwanted_patterns=['{', '}'])
                                                 docs_tags.append(label)
                                             else:
                                                 docs_tags.append('O')
                                             docs_text.append(text)
                                             docs_pos.append(pos)
-                                for te,ta,po in zip(docs_text, docs_tags,docs_pos):
-                                    comet.write('{}\t{}\t{}\n'.format(te, ta, po))
+                                for te,ta,po in zip(docs_text, docs_tags, docs_pos):
+                                    comet.write('{} {} {}\n'.format(te, ta, po))
                                 comet.write('\n')
                         else:
                             logger.info('OOPS pay attention to the below')
@@ -475,7 +475,7 @@ def remove_tools_from_outcomes(phrase):
 
 
 def main():
-    path = 'ebm-data/comet-data/'
+    path = 'comet-data/'
     path_dir = os.path.dirname(path)
     files = os.listdir(path_dir)
     files_list = [path_dir+'/'+i for i in files]

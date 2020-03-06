@@ -9,6 +9,9 @@ from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_se
 import torch.nn.functional as F
 import data_prep as dp
 import numpy as np
+from seq_models.fetch_embeddings import use_flair_to_extract_context_embeddings
+from flair.embeddings import BertEmbeddings
+from flair.data import Sentence
 
 class BiLstm_model(nn.Module):
     def __init__(self, embedding_dim, hidden_size, vocab_size, pos_size, tag_map, word_map, dropout_rate, pos=False, weights_tensor=None, use_pretrained_embeddings=False,
@@ -18,7 +21,7 @@ class BiLstm_model(nn.Module):
         self.hidden_size = hidden_size
         self.embedding_dim = embedding_dim
         self.pos = pos
-        self.word_map = word_map
+        self.word_map = dp.reverse_dict(word_map)
         self.use_pretrained_embeddings = use_pretrained_embeddings
         self.use_bert_features = use_bert_features
         if self.use_pretrained_embeddings and not self.use_bert_features:
@@ -70,17 +73,21 @@ class BiLstm_model(nn.Module):
         seq_len = len(input_seq)
         embs = torch.zeros((seq_len, 1, self.embedding_dim), device=dp.device)
         if self.use_bert_features:
-            input_seq = [i.item() for i in input_seq]
-            for i in features:
-                words = [w[0] for w in features[i]]
-                instance = [self.word_map[i] for i in words]
-                if input_seq == instance:
-                    for k, v in enumerate(features[i]):
-                        if type(v[1]) != torch.Tensor:
-                            embs[k] = torch.tensor(v[1][:self.embedding_dim])
-                        else:
-                            embs[k] = v[1][:self.embedding_dim]
+            input_seq = [self.word_map[i.item()] for i in input_seq]
+            f = [[j for j in features[i][0]] for i in features]
 
+            for i in features:
+                words = features[i][0]
+                instance = [i for i in words]
+                if instance in f:
+                    if input_seq == instance:
+                        for k, v in enumerate(features[i][1]):
+                            if type(v) != torch.Tensor:
+                                embs[k] = torch.tensor(v[:self.embedding_dim])
+                            else:
+                                embs[k] = v[:self.embedding_dim]
+                else:
+                    print(instance)
         else:
             for i,j in enumerate(input_seq):
                 embs[i] = features[j]
@@ -91,7 +98,7 @@ class BiLstm_model(nn.Module):
         #padding
         sent_lens = sorted([len(i) for i in input_seq], reverse=True)
         sentences = sorted(input_seq, key=lambda x:len(x), reverse=True)
-        pad_sentences = pad_sequence(sentences, batccath_first=True)
+        pad_sentences = pad_sequence(sentences, batch_first=True)
         packed_words = pack_padded_sequence(pad_sentences, sent_lens, batch_first=True)
         packed_words = self.dropout(packed_words)
         output, hidden = self.lstm(packed_words, hidden)

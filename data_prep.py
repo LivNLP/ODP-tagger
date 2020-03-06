@@ -17,43 +17,49 @@ from pprint import pprint
 from imblearn.over_sampling import SMOTE
 from collections import Counter
 import pickle
-from pathlib import Path
+from pathlib import Path, PurePath
+import argparse
+import json
+from glob import glob
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-current_file_location = Path(__file__)
+def spacyModel():
+    current_file_location = Path(os.path.realpath(__file__))
+    spacy_model_loc = os.path.join(current_file_location.parents[1], 'pico-outcome-prediction/Trained_Tagger')
 
-#load required nlp models
-spacy_model = spacy.load(os.path.join(current_file_location.parents[1], 'pico-outcome-prediction/trained_tagger'))
-spacy_model.add_pipe(spacy_model.create_pipe('sentencizer'))
+    #load required nlp models
+    spacy_model = spacy.load(spacy_model_loc)
+    spacy_model.add_pipe(spacy_model.create_pipe('sentencizer'))
+    return spacy_model
 
 start_outcome_token, end_outcome_token = 0, 1
 
-def create_vocabularly(data_input):
+def create_vocabularly(data_input, data_output):
     #define a tokenizer borrowing keras processing
     word_map, pos_map = {}, {}
     word_count, pos_count = {}, {}
     index2word, index2pos = {0: "SOO_token", 1:"EOO_token"}, {0: "SOP_token", 1:"EOP_token"}
 
     num_words, num_pos = 2, 2
-
-    if type(data_input) == tuple:
+    #creating a vocabularly that merges the training and validation data otherwise (else block) only the training data
+    if type(data_input) in [tuple, list]:
         all_sentences = []
         for i in data_input:
             with open(i, 'r') as f:
                 f_lines = f.readlines()
-                all_sentences.append(f_lines)
+                for j in f_lines:
+                    all_sentences.append(re.split('\s+', j.strip()))
                 f.close()
-
-        all_sentences = [line for list in all_sentences for line in list]
-        all_sentences_words = [re.split('\s+', i.strip())[0] for i in all_sentences]
     else:
         with open(data_input, 'r') as g:
             g_lines = g.readlines()
             all_sentences = [re.split('\s+', i.strip()) for i in g_lines]
-            if any(len(i) > 2 for i in all_sentences):
-                all_sentences_words = [(s[0], s[2]) for s in all_sentences if len(s) >= 3]
-            else:
-                all_sentences_words = [s[0] for s in all_sentences if len(s) == 2]
+            g.close()
+
+    if any(len(i) > 2 for i in all_sentences):
+        all_sentences_words = [(s[0], s[2]) for s in all_sentences if len(s) >= 3]
+    else:
+        all_sentences_words = [s[0] for s in all_sentences if len(s) == 2]
 
     for feature in all_sentences_words:
         if type(feature) == tuple:
@@ -83,27 +89,30 @@ def create_vocabularly(data_input):
             else:
                 word_count[word] += 1
 
+    with open(os.path.join(data_output, 'vocab.json'), 'w') as vocab, open(os.path.join(data_output, 'pos.json'), 'w') as pos_:
+        json.dump(word_map, vocab, indent=2)
+        json.dump(pos_map, pos_, indent=2)
+        vocab.close()
+
     return word_count, index2word, num_words, pos_count, index2pos, num_pos
 
 def reverse_dict(x):
     return dict((v,k) for k,v in x.items())
 
-
-def readwordTag(data_input):
-    if type(data_input) == str:
-        f = open(data_input, 'r')
-        lines = f.readlines()
-        f.close()
-    else:
-        lines = data_input
-
+def readwordTag(data_input, mode=''):
+    for item in data_input:
+        if item.__contains__(mode):
+            f = open(item, 'r')
+            lines = f.readlines()
+            f.close()
     line_pairs, seq, tags = [], [], []
     for line in lines:
         line = re.split('\s+', line.strip())
+        #only word and tag
         if len(line) == 2:
             seq.append(line[0])
             tags.append(line[1])
-
+        #taking wod and pos as features and the tag
         elif len(line) > 2:
             seq.append((line[0], line[2]))
             tags.append((line[1]))
@@ -115,9 +124,7 @@ def readwordTag(data_input):
                 line_pairs.append((s_seq, t_tags))
             seq.clear()
             tags.clear()
-
     tag_list = list(set([i for k,l in line_pairs for i in l]))
-
     return line_pairs, tag_list
 
 def encod_outputs(outputs):
@@ -145,21 +152,56 @@ def create_tag_map(outputs):
             pass
     return tag_map
 
+def prepare_tensor_pairs(file_path, file_out, mode=''):
+    line_pairs, outputs = readwordTag(file_path, mode=mode)
+    size = len(line_pairs)
+    if mode.strip().lower() == 'train':
+        word_count, index2word, num_words, pos_count, index2pos, num_pos = create_vocabularly(file_path, file_out)
+        word_map = reverse_dict(index2word)
+        pos_map = reverse_dict(index2pos)
+        tag_map = create_tag_map(outputs)
+        index2tag = reverse_dict(tag_map)
+        with open(os.path.join(file_out, 'tags.json'), 'w') as t:
+            json.dump(tag_map, t, indent=2)
+    else:
+        with open(os.path.join(file_out, 'vocab.json') , 'r') as v, open(os.path.join(file_out, 'pos.json'), 'r') as p, open(os.path.join(file_out, 'tags.json'), 'r') as t:
+            word_map = json.load(v)
+            pos_map = json.load(p)
+            tag_map = json.load(t)
+        return line_pairs, word_map, tag_map, pos_map, size
+    return word_count, index2word, num_words, num_pos, line_pairs, word_map, tag_map, pos_map, index2tag, size
+
+
+def merge_train_val(files_list):
+    file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'new_source.bmes')
+    with open(file_path, 'w') as n:
+        for j in files_list:
+            d = open(j, 'r')
+            for r in d.readlines():
+                n.write(r)
+        n.close()
+    return file_path
+
+def batch_processor(input_batch):
+    input = input_batch[0]
+    target_tensor = input_batch[1].to(device)
+    if type(input) == tuple:
+        input_tensor = input[0].to(device)
+        pos_tensor = input[1].to(device)
+        return input_tensor, pos_tensor, target_tensor, input_tensor.size(0), target_tensor.size(0)
+    else:
+        input_tensor = input.to(device)
+        return input_tensor, target_tensor, input_tensor.size(0), target_tensor.size(0)
+
 def inputAndOutput(pairs, word_map, pos_map, tag_map, encoded_outputs=False, test=False):
     input_batch = [x[0] for x in pairs]
     output_batch = [x[1] for x in pairs]
-    oov_words = []
-    if test:
-        words_in_test = list(set([i for j in input_batch for i in j]))
-        trained_vocabularly = list(word_map.keys())
-        oov_words = [i for i in words_in_test if i not in trained_vocabularly]
-        #largest_index = sorted(word_map.items(), key=lambda x:x[1])[-1][1]
-        # for i, oov in enumerate(oov_words):
-        #     i = i + 1
-        #     word_map[oov] = largest_index + i
-        #input_batch = [[word_map[i] if i in word_map  else 0 for i in j] for j in input_batch]
-
-    if all(type(ins[0]) == tuple for ins in input_batch):
+    long_sequences = []
+    if all(type(feat) == tuple for item in input_batch for feat in item):
+        for i in input_batch:
+            if len(i) > 128:
+                v = [x for x,y in i]
+                long_sequences.append(' '.join(v))
         input_batch = [[(word_map[i], pos_map[j]) for i,j in ins] for ins in input_batch]
     else:
         input_batch = [[word_map[i] for i in ins] for ins in input_batch]
@@ -169,17 +211,20 @@ def inputAndOutput(pairs, word_map, pos_map, tag_map, encoded_outputs=False, tes
     else:
         output_batch = [[tag_map[i] for i in j] for j in output_batch]
 
-    input_features, lit_len = prepareTensor(input_batch)
+    max_seq_length = max([len(i) for i in input_batch])
+    input_features = prepareTensor(input_batch)
     output_features = [prepare_tensor(i) for i in output_batch]
+    return input_features, output_features, max_seq_length, long_sequences
 
-    if oov_words:
-        return input_features, output_features, lit_len, oov_words
-    return input_features, output_features, lit_len
+def oov_vocab(input_batch, word_map):
+    words_in_test = list(set([i[0] if len(i) > 1 else i for j in input_batch for i in j]))
+    trained_vocabularly = list(word_map.keys())
+    oov_words = [i for i in words_in_test if i not in trained_vocabularly]
+    return oov_words
 
 def prepareTensor(seq_data, attention=False):
     #append the end of outcome token at the end of every sequence
     new_seq_data, final_seq_data = [], []
-
     if attention == True:
         for i in seq_data:
             e = [j for j in i]
@@ -188,22 +233,18 @@ def prepareTensor(seq_data, attention=False):
     else:
         new_seq_data = seq_data
 
-    longest_seq_data = 0
     for i in new_seq_data:
         if all(type(n) == tuple for n in i):
-            tokens = [j[0] for j in i]
-            pos = [j[1] for j in i]
+            tokens, pos = [j[0] for j in i], [j[1] for j in i]
             final_seq_data.append((prepare_tensor(tokens), prepare_tensor(pos)))
         else:
-            final_seq_data.append(prepare_tensor(i))
-        if longest_seq_data < len(i):
-            longest_seq_data = len(i)
-
+            tokens = i
+            final_seq_data.append(prepare_tensor(tokens))
     padded_sentences = final_seq_data
     # padded = nn.utils.rnn.pad_sequence(seq_datatrain_stanford_ebm.bmes)
     # padded_array = padded.cpu().numpy()
     # padded_sentences = [list(i) for i in list(zip(*padded_array))]
-    return padded_sentences, longest_seq_data
+    return padded_sentences
 
 def prepare_tensor(x):
     return torch.tensor(x, dtype=torch.long, device=device).view(-1, 1)
@@ -216,7 +257,7 @@ def split_data(file):
     file_name = file_name[0] + '_ebm.bmes'
 
     #file_name = os.path.abspath(os.path.join('BIO-data', file_name))
-
+    spacy_model = spacyModel()
     num_instances = 0
     num_abstracts = 0
 
@@ -412,13 +453,13 @@ def data_resample(input, output, percentage, index2word, index2tag, sampling_tec
         #setting maximum sentence length to 50
         for u in chunks(all_text, n=50):
             u = ' '.join(u)
-            doc = spacy_model(u.strip())
+            doc = spacyModel(u.strip())
             instances = []
             for i, sent in enumerate(doc.sents):
                 tokens = str(sent).split()
                 char_case_features = [i[0].isupper() for i in tokens]
                 char_case_features = ['T' if i == True else 'F' for i in char_case_features]
-                pos_features = [i.pos_ for i in spacy_model(str(sent))]
+                pos_features = [i.pos_ for i in spacyModel(str(sent))]
                 labels = tags[:len(tokens)]
                 average_sent_length.append(len(tokens))
 
@@ -465,49 +506,9 @@ def count_labels(data, ix_map):
     labels_count = Counter([ix_map[o] for o in labels_])
     return labels_count
 
-def prepare_training_data(file_path):
-    if type(file_path) == tuple or type(file_path) == list:
-        file_path = [i for i in file_path if i.lower().__contains__('train') or i.lower().__contains__('dev')]
-        file_path = sorted(file_path, key=lambda x:len(x), reverse=True)
-        train_pairs, o = readwordTag(file_path[0])
-        file_path = merge_train_val(file_path)
-    if file_path:
-        word_count, index2word, num_words, pos_count, index2pos, num_pos = create_vocabularly(file_path)
-        line_pairs, outputs = readwordTag(file_path)
-        word_map = reverse_dict(index2word)
-        pos_map = reverse_dict(index2pos)
-        tag_map = create_tag_map(outputs)
-        index2tag = reverse_dict(tag_map)
-    if type(file_path) == tuple or type(file_path) == list:
-        train_size = len(train_pairs)
-        return word_count, index2word, num_words, num_pos, line_pairs, word_map, tag_map, pos_map, index2tag, train_size
-    return word_count, index2word, num_words, num_pos, line_pairs, word_map, tag_map, pos_map, index2tag
 
-def merge_train_val(files_list):
-    file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'new_source.bmes')
-    with open(file_path, 'w') as n:
-        for j in files_list:
-            d = open(j, 'r')
-            for r in d.readlines():
-                n.write(r)
-        n.close()
-    return file_path
-
-def batch_processor(input_batch):
-    input = input_batch[0]
-    target_tensor = input_batch[1].to(device)
-    if type(input) == tuple:
-        input_tensor = input[0].to(device)
-        pos_tensor = input[1].to(device)
-        return input_tensor, pos_tensor, target_tensor, input_tensor.size(0), target_tensor.size(0)
-    else:
-        input_tensor = input.to(device)
-        return input_tensor, target_tensor, input_tensor.size(0), target_tensor.size(0)
-
-
-def reduce_features(file, dest, test=False):
-    file_path = os.path.dirname(os.path.abspath(file))
-    file_name = os.path.basename(file).split('_')[0]
+def reduce_features(file, dest, ebm=False, default_line=False, test=False):
+    file_name = os.path.basename(file).split('.')[0]
     sentences = []
     with open(file, 'r') as f:
         sentence = []
@@ -516,29 +517,39 @@ def reduce_features(file, dest, test=False):
                 sentences.append([i for i in sentence])
                 sentence.clear()
             else:
-                line_split = line.split(' ')
-                sentence.append(str(line_split[0])+' '+str(line_split[1]))
+                if default_line == True:
+                    sentence.append(line)
+                else:
+                    line_split = re.split('\s+',line)
+                    sentence.append(str(line_split[0])+' '+str(line_split[1]))
         f.close()
 
     dest = utils.create_directories_per_series_des(dest)
-    if test:
-        write_to(os.path.join(dest, 'test.txt'), sentences)
-    else:
-        p = int(np.round(0.8*len(sentences)))
-        train = sentences[:p]
-        test = sentences[p:]
 
-        write_to(os.path.join(dest, 'train.txt'), train)
-        write_to(os.path.join(dest, 'dev.txt'), test)
+    if ebm:
+        print(len(sentences))
+        print(max([len(i) for i in sentences]))
+        np.random.shuffle(sentences)
+        if test:
+            write_to(os.path.join(dest, 'test.txt'), sentences)
+        else:
+            p = int(np.round(0.5*len(sentences)))
+            train = sentences[:p]
+            test = sentences[p:]
+
+            write_to(os.path.join(dest, 'dev.txt'), train)
+            write_to(os.path.join(dest, 'test.txt'), test)
+    else:
+        write_to(os.path.join(dest, '{}.txt'.format(file_name)), sentences)
 
 
 def write_to(file, source):
     with open(file, 'w') as tr:
         if type(source) == list:
+            print('yes')
             for sent in source:
                 for pair in sent:
-                    tr.write(pair)
-                    tr.write('\n')
+                    tr.write('{}\n'.format(pair))
                 tr.write('\n')
         elif type(source) == str:
             op = open(source, 'r')
@@ -553,20 +564,72 @@ def write_to(file, source):
         tr.close()
 
 
+def bc2gm(folder):
+    files = glob('{}/*.json'.format(folder))
+    file_dest = Path(files[0])
+    file_dest = file_dest.parent
+    spacy_model = spacyModel()
+    print(files)
+    for f in files:
+        t = os.path.basename(f).split('.')[0]
+        with open(f, 'r') as b, open(os.path.join(file_dest, '{}.bmes'.format(t)), 'w') as c:
+            data = json.load(b)
+            e = 0
+            for i in data:
+                text = data[i]["sent"]
+                gene_tag = data[i]["gene"]
+                gene_tag = [list(range(i[0], i[-1]+1)) for i in gene_tag]
+
+                pos = []
+                for i in text:
+                    p = [i.pos_ for i in spacy_model(i)]
+                    pos.append(p[0])
+
+                x = 0
+                for m,n in enumerate(text):
+                    if m == x:
+                        if m in [i for u in gene_tag for i in u]:
+                            tags = gene_tag[0]
+                            for o,h in enumerate(tags):
+                                if h == m and o == 0:
+                                    c.write('{} B-gene {}\n'.format(text[h], pos[h]))
+                                else:
+                                    c.write('{} I-gene {}\n'.format(text[h], pos[h]))
+                            x = tags[-1]
+                            gene_tag = gene_tag[1:]
+                        else:
+                            c.write('{} 0 {}\n'.format(n, pos[m]))
+                        x += 1
+                c.write('\n')
+                e += 1
+        print('{} has {} instances'.format(f, e))
+
 
 if __name__ == '__main__':
-    #fetch embeddings
-    # file_path = '../pico-outcome-prediction/corrected_outcomes/BIO-data/stanford'
-    # train_data_file = os.path.join(file_path, 'train_stanford_ebm.bmes')
-    # # test_data_file = os.path.join(file_path, 'Test_stanford_ebm.bmes')
-    # word_count, index2word, num_words, num_pos, line_pairs, word_map, tag_map, pos_map, index2tag = prepare_training_data(train_data_file)
-    # #fetch_outcome_lexicon('ebm-data/Review Outcomes - Mental Health .xlsx', train_data_file)
-    # weights = utils.fetch_embeddings(file='word_vecs/bionlp_wordvec/wikipedia-pubmed-and-PMC-w2v.bin', word_map=word_map, type='pubmed')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--data', type=str, required=True, help='data source')
+    parser.add_argument('--outputdir', type=str, required=True)
+    parser.add_argument('--ebm', action='store_true')
+    parser.add_argument('--default_line', action='store_true')
+    parser.add_argument("--function", default=None, type=str, required=True, help="Source of training, validation and test data")
 
-    #create dataset
-    file_path = 'ebm-data/stanford'
-    dest_path = '../transformers/glue_data/ebm-data'
-    train_data_file = os.path.join(file_path, 'test_stanford_ebm_org.bmes')
+    args = parser.parse_args()
+    # fetch embeddings
+    if args.function.lower() in ['fetch_embeddings', 'fetch embeddings']:
+        dir = os.path.abspath(args.data)
+        file_path = [os.path.join(dir, i) for i in os.listdir(dir) if i.lower().__contains__('train') or i.lower().__contains__('dev')]
+        dest = utils.create_directories_per_series_des(args.outputdir)
+        word_count, index2word, num_words, pos_count, index2pos, num_pos = create_vocabularly(file_path, dest)
+        word_map = reverse_dict(index2word)
+        weights = utils.fetch_embeddings(file='word_vecs/bionlp_wordvec/wikipedia-pubmed-and-PMC-w2v.bin', dest=dest, word_map=word_map, type='pubmed')
+    # fetch outcokme lexicon
+    elif args.function.lower() in ['fetch_outcome_lexicon', 'fetch outcome lexicon']:
+        fetch_outcome_lexicon('ebm-data/Review Outcomes - Mental Health .xlsx', args.data)
 
-    reduce_features(train_data_file, dest_path, test=True)
-    #write_to(os.path.join(file_path, 'test.txt'), test_data_file)
+    elif args.function.lower() in ['reduce features', 'reduce_features']:
+        reduce_features(file=args.data, dest=args.outputdir, ebm=args.ebm, default_line=args.default_line)
+
+    # fetch bc2gm dataset
+    elif args.function.lower in ['bc2gm']:
+        print(args)
+        bc2gm(args.data)

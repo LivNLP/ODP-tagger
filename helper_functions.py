@@ -23,6 +23,9 @@ from colored import fg, bg, attr
 from pprint import pprint
 import torch
 import torch.nn.functional as F
+from docx import Document
+from docx.shared import RGBColor
+import argparse
 plt.style.use('ggplot')
 
 def build_line_plots(save_path, values, title, labels=[], yticks=None, xticks=None):
@@ -312,9 +315,25 @@ def visuzailize_output(actual_file, predicted_file):
     print(o)
     return actual, predicted
 
-def check_predictions(file_1, file_2, non_label, actual_with_predicted=False):
+def error_position(d):
+    start, mid_way, end = 0, 0, 0
+    for pos, entity in enumerate(d):
+        if entity[0] == 'bad-prediction':
+            start += 1
+        elif entity[-1] == 'bad-prediction':
+            end += 1
+        else:
+            mid_way += 1
+    start = float(start/len(d))
+    mid_way = float(mid_way/len(d))
+    end = float(end/len(d))
+    return start, mid_way, end
+
+def check_predictions(file_1, file_2, non_label, dest_folder, actual_with_predicted=False):
     actual = fetch_sentences(file_1)
     predicted = fetch_sentences(file_2)
+    file_name = os.path.basename(file_1).split('.')
+
     if actual_with_predicted:
         #strip egdges
         actual = [[i.strip() for i in j] for j in actual]
@@ -323,78 +342,92 @@ def check_predictions(file_1, file_2, non_label, actual_with_predicted=False):
         predicted = [[i[0]+' '+i[-1] for i in j] for j in predicted]
     no_struggles = [0, [], []]
     struggles = [0, [], []]
-    print(actual[:1])
-    print(predicted[:1])
-    for i,j in zip(actual, predicted):
-        pred = ''
-        if i == j:
-            #print(' '.join([x.split()[0].strip() for x in i]))
-            for y in j:
-                y_split = y.split()
-                if y_split[1].strip() != str(non_label):
-                    print(y_split[0])
-                    f = '\033[1m'+'{} {}'.format(fg(4), y_split[0].strip())+'\033[0m'
-                    c = '{}'.format(f)
-                    pred += c
-                    no_struggles[1].append(y_split[0])
-                else:
-                    pred += '{} {}'.format(fg(0), y_split[0].strip())
-                    no_struggles[2].append(no_struggles[1].copy())
-                    no_struggles[1].clear()
-            no_struggles[0] += 1
-            print(pred)
-        else:
-            if len(i) != len(j):
-                pass
-            else:
-                #print(' '.join([x.split()[0].strip() for x in i]))
-                for x,y in zip(i,j):
-                    x_split, y_split = x.split(), y.split()
-                    if x_split[1].strip() != str(non_label):
-                        if x_split[1] == y_split[1]:
-                            f = '\033[1m' + '{} {}'.format(fg(4), y_split[0].strip()) + '\033[0m'
-                            c = '{}'.format(f)
-                            struggles[1].append(y_split[0])
-                        else:
-                            f = '\033[1m' + '{} {}'.format(fg(1), y_split[0].strip()) + '\033[0m'
-                            c = '{}'.format(f)
-                            struggles[1].append('bad-prediction')
+
+    with open(os.path.join(dest_folder, 'analysis.txt'), 'w') as q:
+        for i,j in zip(actual, predicted):
+            pred = ''
+            if i == j:
+                print(' '.join([x.split()[0].strip() for x in i]))
+                for y in j:
+                    y_split = y.split()
+                    if y_split[1].strip() != str(non_label):
+                        f = '\033[1m'+'{} {}'.format(fg(4), y_split[0].strip())+'\033[0m'
+                        c = '{}'.format(f)
                         pred += c
+                        no_struggles[1].append(y_split[0])
                     else:
                         pred += '{} {}'.format(fg(0), y_split[0].strip())
-                        struggles[2].append(struggles[1].copy())
-                        struggles[1].clear()
+                        no_struggles[2].append(no_struggles[1].copy())
+                        no_struggles[1].clear()
+                no_struggles[0] += 1
                 print(pred)
-            struggles[0] += 1
-    print('\n')
-    print('Total number of sentences {}'.format(len(actual)))
-    print('Total Number of sentences correctly predicted {}'.format(no_struggles[0]))
-    well_predicted = [i for i in no_struggles[2] if i != []]
-    count_well_predicted = [len(i) for i in well_predicted]
-    print('Average entity length of correct predictions {}\nMax entity length {}\nMin entity length {}'.format(\
-            np.mean(count_well_predicted), np.max(count_well_predicted), np.min(count_well_predicted)))
+                q.write('{}\n'.format(pred))
+            else:
+                if len(i) != len(j):
+                    pass
+                    # print(i)
+                    # print(j)
+                    # j_ = [i.split() for i in j]
+                    # for count,x in enumerate(i):
+                    #     x_split = x.split()
+                    #     if x_split[0] == j_[count][0]:
+                    #         print(x, j_[count])
+                    #     else:
+                    #         break
+                else:
+                    print(' '.join([x.split()[0].strip() for x in i]))
+                    for x,y in zip(i,j):
+                        x_split, y_split = x.split(), y.split()
+                        if x_split[1].strip() != str(non_label):
+                            if x_split[1] == y_split[1]:
+                                f = '\033[1m' + '{} {}'.format(fg(4), y_split[0].strip()) + '\033[0m'
+                                c = '{} {}'.format(x_split[1].strip(), f)
+                                struggles[1].append(y_split[0])
+                            else:
+                                f = '\033[1m' + '{} {}'.format(fg(1), y_split[0].strip()) + '\033[0m'
+                                c = '{} {}'.format(x_split[1].strip(), f)
+                                struggles[1].append('bad-prediction')
+                            pred += c
+                        else:
+                            pred += '{} {} {}'.format(x_split[1].strip(), fg(0), y_split[0].strip())
+                            struggles[2].append(struggles[1].copy())
+                            struggles[1].clear()
+                    print(pred)
+                    q.write('{}\n'.format(pred))
+                struggles[0] += 1
+        print('\n')
+        print('Total number of sentences {}'.format(len(actual)))
+        print('Total Number of sentences correctly predicted {}'.format(no_struggles[0]))
+        well_predicted = [i for i in no_struggles[2] if i != []]
+        count_well_predicted = [len(i) for i in well_predicted]
+        print('Average entity length of correct predictions {}\nMax entity length {}\nMin entity length {}'.format(\
+                np.mean(count_well_predicted), np.max(count_well_predicted), np.min(count_well_predicted)))
 
-    print('\n')
-    print('Total Number of sentences where predictor struggles {}'.format(struggles[0]))
-    un_well_predicted = [i for i in struggles[2] if i != []]
-    count_un_well_predicted = [len(h) for h in un_well_predicted]
-    un_well_predicted_good = [i for i in un_well_predicted if 'bad-prediction' not in i]
-    un_well_predicted_bad = [i for i in un_well_predicted if 'bad-prediction' in i]
-    print('un_well_predicted_good', len(un_well_predicted_good))
-    #pprint(un_well_predicted_good)
-    print('un_well_predicted_bad', len(un_well_predicted_bad))
-    #pprint(un_well_predicted_bad)
-    print('Average entity length of un_well_predicted_good {}\nMax entity length of un_well_predicted_good {}\nMin entity length of un_well_predicted_good {}\nAverage entity length un_well_predicted_bad {}\nMax entity length of un_well_predicted_bad {}\nMin entity length of un_well_predicted_bad {}'\
-          ''.format( \
-        np.mean([len(h) for h in un_well_predicted_good]),
-        np.max([len(h) for h in un_well_predicted_good]),
-        np.min([len(h) for h in un_well_predicted_good]),
-        np.mean([len(h) for h in un_well_predicted_bad]),
-        np.max([len(h) for h in un_well_predicted_bad]),
-        np.min([len(h) for h in un_well_predicted_bad])))
-    r = sent_length_analysis(well_predicted+un_well_predicted)
+        print('\n')
+        print('Total Number of sentences where predictor struggles {}'.format(struggles[0]))
+        un_well_predicted = [i for i in struggles[2] if i != []]
+        start, mid_way, end = error_position(un_well_predicted)
+        print('Error at start {}, Error midway {}, Error at the end {}'.format(start, mid_way, end))
+        count_un_well_predicted = [len(h) for h in un_well_predicted]
+        un_well_predicted_good = [i for i in un_well_predicted if 'bad-prediction' not in i]
+        un_well_predicted_bad = [i for i in un_well_predicted if 'bad-prediction' in i]
+        print('un_well_predicted_good', len(un_well_predicted_good))
+        #pprint(un_well_predicted)
+        print('un_well_predicted_bad', len(un_well_predicted_bad))
+        #pprint(un_well_predicted_bad)
+        print('Average entity length of un_well_predicted_good {}\nMax entity length of un_well_predicted_good {}\nMin entity length of un_well_predicted_good {}\nAverage entity length un_well_predicted_bad {}\nMax entity length of un_well_predicted_bad {}\nMin entity length of un_well_predicted_bad {}'\
+              ''.format( \
+            np.mean([len(h) for h in un_well_predicted_good]),
+            np.max([len(h) for h in un_well_predicted_good]),
+            np.min([len(h) for h in un_well_predicted_good]),
+            np.mean([len(h) for h in un_well_predicted_bad]),
+            np.max([len(h) for h in un_well_predicted_bad]),
+            np.min([len(h) for h in un_well_predicted_bad])))
+        r = sent_length_analysis(well_predicted+un_well_predicted)
+        r.savefig(os.path.join(dest_folder, file_name[0]+'.png'))
     #print(r)
 def sent_length_analysis(sentences):
+    hfont = {'fontname': 'Helvetica', 'fontweight': 'bold'}
     a = {}
     for i,j in enumerate(sentences):
         if len(j) not in a:
@@ -419,19 +452,47 @@ def sent_length_analysis(sentences):
     # ax = sns.lineplot(x="x", y="y", data=sss)
     plt.plot(list(plotting_a.keys()),list(plotting_a.values()), marker='*', color='green', label='Fine-tuning')
     plt.plot(list(plotting_b.keys()), list(plotting_b.values()), marker='+', color='magenta', label='Feature-extraction')
-    plt.xticks(np.arange(1, 11, 1))
-    plt.xlabel('entity span length')
-    plt.ylabel('prediction accuracy')
-    plt.legend()
-    plt.show()
-    return a
+    plt.xticks(np.arange(1, 11, 1), **hfont)
+    plt.yticks(**hfont)
+    plt.xlabel('entity span length', **hfont)
+    plt.ylabel('prediction accuracy', **hfont)
+    plt.legend(prop={"weight":'bold'})
+
+    return plt
 
 if __name__== '__main__':
+    parser = argparse.ArgumentParser()
+    ## Required parameters
+    parser.add_argument("--file_1", default='comet-data/transformer_data/dev.txt', type=str, help="The input data dir. Should contain the training files.")
+    parser.add_argument("--file_2", default='output/Feature_extraction/Comet_w2v_H_O_T/eval_preds.txt', type=str, help="pretrained embeddings file.")
+    parser.add_argument("--dataset", default='Comet', required=True)
+    parser.add_argument("--visualize_classification", action='store_true')
+    args = parser.parse_args()
+
     k = 1
-    if k == 0:
-        x = visuzailize_output('ebm-data/transformer-data/full/test.txt', 'output/Fine-tuning/EBM_BIOBERT/test_predictions.txt')
+    if args.visualize_classification:
+        visuzailize_output(args.file_1, args.file_2)
     else:
-        #check_predictions('ebm-data/transformer-data/full/test.txt', 'output/Fine-tuning/EBM_BIOBERT/test_predictions.txt', non_label=0, actual_with_predicted=True)
-        check_predictions('comet-data/transformer_data/dev.txt',
-                          'output/Fine-tuning/COMET_BIOBERT/eval_preds.txt', non_label='O',
+        non_label = 'O' if args.dataset.lower() == 'comet' else 0
+        dest_folder = os.path.dirname(args.file_2)
+        check_predictions(file_1=args.file_1,
+                          file_2=args.file_2,
+                          non_label=non_label,
+                          dest_folder=dest_folder,
                           actual_with_predicted=True)
+        # check_predictions(file_1='ebm-data/transformer-data/full/test.txt',
+        #                   file_2='output/Feature_extraction/EBM_bert_H_O_T/decoded.out',
+        #                   non_label=0,
+        #                   dest_folder='output/Fine-tuning/EBM_BIOBERT/',
+        #                   actual_with_predicted=True)
+        # check_predictions(file_1='ebm-data/transformer-data/full/test.txt',
+        #                   file_2='output/Fine-tuning/EBM_BIOBERT/test_predictions.txt',
+        #                   non_label=0,
+        #                   dest_folder='output/Fine-tuning/EBM_BIOBERT/',
+        #                   actual_with_predicted=True)
+
+        # check_predictions(file_1='comet-data/transformer_data/dev.txt',
+        #                   file_2='output/Fine-tuning/COMET_BIOBERT/eval_preds.txt',
+        #                   non_label='O',
+        #                   dest_folder='output/Fine-tuning/COMET_BIOBERT/',
+        #                   actual_with_predicted=True)

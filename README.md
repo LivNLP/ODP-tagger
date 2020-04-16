@@ -2,7 +2,7 @@
 A tool built for Biomedical named entity recognition. This tagger aims to detect spans of biomedical entities within electronic health/medical text records, written in english language. Such records can be found in Medical Research Abstracts, Clinic letters e.t.c
 
 The tagger adopts a mechanism making use of different variants of Recurrent Neural Networks, (GRU, LSTM). It makes use of biomedically induced feature representations including, 
-Word2Vec_pubmed embeddings, Obtains by training Word2Vec on pubmed abstracts.
+Word2Vec_pubmed embeddings obtained by training Word2Vec on pubmed abstracts.
 Contextual biomedical embeddings obtained by extracting feature representations from the all layers of Biomedical version sof BERT(BioBERT), ELMO(BioELMO) and BioFLAIR. 
 
 ## Data

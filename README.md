@@ -8,3 +8,5 @@ Contextual biomedical embeddings obtained by extracting feature representations 
 ## Data
 Tested and evaluated on datasets including a health outcomes dataset EBM-COMET.(Outcomes precisely be descirbed as a diagnosis observed prior, during or after a health assessment), EBM-NLP datasethttps://github.com/bepnye/EBM-NLP. all datasets consist of biomedical articles including some describing randomized control trials (RCTs) that compare multiple treatments and a Protein/gene dataset (BC2GM). 
 
+## BioBERT
+BioBERT is a biomedical version of BERT built by pre-training a BERT model on biomedical corpora that includes 4.5B words from PubMed abstracts and 13.5B words from PubMed Central (PMC) articles. Pretrained weights of BioBERT model avilable  https://github.com/naver/biobert-pretrained

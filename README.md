@@ -1,4 +1,4 @@
-# BNER-tagger
+# ODP-tagger
 A tool built for Biomedical named entity recognition. This tagger aims to detect spans of biomedical entities within electronic health/medical text records, written in english language. Such records can be found in Medical Research Abstracts, Clinic letters e.t.c
 
 The tagger adopts a mechanism making use of different variants of Recurrent Neural Networks, (GRU, LSTM). It makes use of biomedically induced feature representations including, 

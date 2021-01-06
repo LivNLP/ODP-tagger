@@ -21,6 +21,7 @@ from pathlib import Path, PurePath
 import argparse
 import json
 from glob import glob
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def spacyModel():

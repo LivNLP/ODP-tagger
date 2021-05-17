@@ -1,7 +1,3 @@
-# -*- coding: utf-8 -*-
-# @Author: micheala
-# @Created: 24/08/19
-# @Contact: michealabaho265@gmail.com
 import warnings
 
 with warnings.catch_warnings():

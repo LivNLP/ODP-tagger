@@ -1,7 +1,3 @@
-# -*- coding: utf-8 -*-
-# @Author: micheala
-# @Created: 10/12/19 
-# @Contact: michealabaho265@gmail.com
 import pickle
 import torch
 import numpy as np

@@ -22,6 +22,7 @@ def extract_pico_elements(pico_element, model_phase):
     if not os.path.exists(pico_element_dir):
         os.makedirs(pico_element_dir)
     i = 0
+    
     with open('{}.txt'.format(model_phase), 'w') as train, open(os.path.join(pico_element_dir, '{}.txt'.format(model_phase)), 'w') as train_:
         for pmid, doc in ebm_extract.items():
             annotations = doc.anns['AGGREGATED']

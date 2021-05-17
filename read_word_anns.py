@@ -487,7 +487,6 @@ def remove_tools_from_outcomes(phrase):
         phrase = o.sub('', phrase)
     return ' '.join(phrase.split())
 
-
 def main():
     path = 'comet-data/'
     path_dir = os.path.dirname(path)

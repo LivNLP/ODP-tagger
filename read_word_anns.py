@@ -48,6 +48,7 @@ COMET_LABELS = {\
 
 logger = logging.getLogger(__name__)
 
+#mapping annotations
 def map_annotations(tag_number):
     label = 'No label'
     possible_labels = [v for y in COMET_LABELS for x,v in COMET_LABELS[y].items()]

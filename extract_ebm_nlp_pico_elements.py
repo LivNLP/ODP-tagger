@@ -70,9 +70,9 @@ def split_data(tokens_anns_list, transformer=False):
     doc_abstract = medpost(abstract)
 
     for i, sent in enumerate(doc_abstract.sents):
-        #
+        
         # in addition to a word, include two other features, part of speech and the whether or not the first character of the word is upper case or not
-        #
+        
         split_sentence = str(sent).split()
         if transformer:
             pos = [i.pos_ for i in medpost(str(sent))]

@@ -1,5 +1,5 @@
 # ODP-tagger
-A tool built for Biomedical named entity recognition, evaluated for detection of huuman outcomes in clinical trial abstracts. This tagger aims to detect spans of biomedical entities within electronic health/medical text records, written in english language. Such records can be found in Medical Research Abstracts, Clinic letters e.t.c
+A tool built for Outcome Detection (a Biomedical named entity recognition task), evaluated for detection of huuman outcomes in clinical trial abstracts. This tagger aims to detect spans of biomedical entities within electronic health/medical text records, written in english language. Such records can be found in Medical Research Abstracts, Clinic letters e.t.c
 
 The tagger adopts a mechanism making use of different variants of Recurrent Neural Networks, (GRU, LSTM). It makes use of biomedically induced feature representations including, 
 Word2Vec_pubmed embeddings obtained by training Word2Vec on pubmed abstracts.

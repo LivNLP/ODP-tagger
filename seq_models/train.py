@@ -198,7 +198,7 @@ def main():
     par.add_argument("--use_pretrained_embeddings", action='store_true', help="use or ignore pretrained embeddings")
     par.add_argument("--use_bert_features", action='store_true', help="use or ignore pretrained embeddings")
     par.add_argument("--crf_layer", action='store_true', help="use or ignore crf_layer")
-    par.add_argument("--neural", default='lstm', type=str, help="LSTM or GRU or RNN")
+    par.add_argument("--neural", default='lstm', type=str, help ="LSTM or GRU or RNN")
     par.add_argument("--train_val_split", default=None, help="split the training data into train and validation sets")
     par.add_argument("--evaluate_during_training", action="store_true", help="Whether to run evaluation during training at each logging step.")
     par.add_argument("--sampling_percentage", default=None, type=int, help="percentage to use when sampling down the majority calss labels")

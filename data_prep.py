@@ -611,8 +611,8 @@ if __name__ == '__main__':
     parser.add_argument('--ebm', action='store_true')
     parser.add_argument('--default_line', action='store_true')
     parser.add_argument("--function", default=None, type=str, required=True, help="Source of training, validation and test data")
-
     args = parser.parse_args()
+    
     # fetch embeddings
     if args.function.lower() in ['fetch_embeddings', 'fetch embeddings']:
         dir = os.path.abspath(args.data)

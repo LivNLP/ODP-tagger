@@ -184,6 +184,7 @@ if __name__ == '__main__':
     # load data
     data_dir = 'ebm-data/stanford/'
     output_dir = 'output/HOT'
+    
     # set commandline parameters
     par = argparse.ArgumentParser()
     par.add_argument("--data", default=data_dir, type=str, help="Source of training, validation and test data")
